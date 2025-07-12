@@ -1,210 +1,146 @@
-# DCGM-Exporter
+# DCGM Exporter (海光DCU支持版)
 
-This repository contains the DCGM-Exporter project. It exposes GPU metrics exporter for [Prometheus](https://prometheus.io/) leveraging [NVIDIA DCGM](https://developer.nvidia.com/dcgm).
+[![Go](https://img.shields.io/badge/Go-1.21+-blue.svg)](https://golang.org)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-### Documentation
+基于NVIDIA DCGM-Exporter改造的GPU/DCU监控解决方案，支持**NVIDIA GPU**和**海光DCU**双模式运行。
 
-Official documentation for DCGM-Exporter can be found on [docs.nvidia.com](https://docs.nvidia.com/datacenter/cloud-native/gpu-telemetry/dcgm-exporter.html).
+## ✨ 主要特性
 
-### Quickstart
+- 🔥 **海光DCU支持**: 新增海光DCU监控功能
+- 🟢 **NVIDIA GPU兼容**: 保持原有NVIDIA GPU监控功能
+- 🔄 **双模式切换**: 通过命令行参数轻松切换监控模式
+- 📊 **Prometheus兼容**: 标准Prometheus指标格式
+- 🚀 **生产就绪**: 完整的部署和运维方案
 
-To gather metrics on a GPU node, simply start the `dcgm-exporter` container:
+## 🚀 快速开始
 
-```shell
-docker run -d --gpus all --cap-add SYS_ADMIN --rm -p 9400:9400 nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.2.0-ubuntu22.04
-curl localhost:9400/metrics
-# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz).
-# TYPE DCGM_FI_DEV_SM_CLOCK gauge
-# HELP DCGM_FI_DEV_MEM_CLOCK Memory clock frequency (in MHz).
-# TYPE DCGM_FI_DEV_MEM_CLOCK gauge
-# HELP DCGM_FI_DEV_MEMORY_TEMP Memory temperature (in C).
-# TYPE DCGM_FI_DEV_MEMORY_TEMP gauge
-...
-DCGM_FI_DEV_SM_CLOCK{gpu="0", UUID="GPU-604ac76c-d9cf-fef3-62e9-d92044ab6e52"} 139
-DCGM_FI_DEV_MEM_CLOCK{gpu="0", UUID="GPU-604ac76c-d9cf-fef3-62e9-d92044ab6e52"} 405
-DCGM_FI_DEV_MEMORY_TEMP{gpu="0", UUID="GPU-604ac76c-d9cf-fef3-62e9-d92044ab6e52"} 9223372036854775794
-...
+### 海光DCU模式
+```bash
+# 启动海光DCU监控
+./dcgm-exporter --use-hygon-mode
+
+# 查看指标
+curl http://localhost:9400/metrics | grep hygon_temperature
 ```
 
-### Quickstart on Kubernetes
+### NVIDIA GPU模式
+```bash
+# 启动NVIDIA GPU监控（默认模式）
+./dcgm-exporter
 
-Note: Consider using the [NVIDIA GPU Operator](https://github.com/NVIDIA/gpu-operator) rather than DCGM-Exporter directly.
-
-Ensure you have already setup your cluster with the [default runtime as NVIDIA](https://github.com/NVIDIA/nvidia-container-runtime#docker-engine-setup).
-
-The recommended way to install DCGM-Exporter is to use the Helm chart:
-
-```shell
-helm repo add gpu-helm-charts \
-  https://nvidia.github.io/dcgm-exporter/helm-charts
+# 查看指标
+curl http://localhost:9400/metrics | grep DCGM_FI
 ```
 
-Update the repo:
+## 📊 支持的指标
 
-```shell
-helm repo update
+### 海光DCU指标
+- `hygon_temperature` - DCU温度
+- `hygon_avg_power` - 平均功耗
+- `hygon_dcu_usage` - DCU使用率
+- `hygon_vram_usage` - 显存使用率
+- `hygon_power_cap` - 功耗上限
+- `hygon_performance_mode` - 性能模式
+- `hygon_device_mode` - 设备状态
+
+### NVIDIA GPU指标
+- `DCGM_FI_DEV_GPU_UTIL` - GPU使用率
+- `DCGM_FI_DEV_GPU_TEMP` - GPU温度
+- `DCGM_FI_DEV_POWER_USAGE` - 功耗
+- `DCGM_FI_DEV_FB_USED` - 显存使用量
+- 更多DCGM标准指标...
+
+## 📦 安装部署
+
+### 方法1: 预编译包（推荐）
+```bash
+# 下载并安装
+wget https://your-server/hygon-dcgm-exporter-release.tar.gz
+tar -xzf hygon-dcgm-exporter-release.tar.gz
+cd hygon-dcgm-exporter-*
+sudo ./install.sh
 ```
 
-And install the chart:
-
-```shell
-helm install \
-    --generate-name \
-    gpu-helm-charts/dcgm-exporter
-```
-
-Once the `dcgm-exporter` pod is deployed, you can use port forwarding to obtain metrics quickly:
-
-```shell
-kubectl create -f https://raw.githubusercontent.com/NVIDIA/dcgm-exporter/master/dcgm-exporter.yaml
-
-# Let's get the output of a random pod:
-NAME=$(kubectl get pods -l "app.kubernetes.io/name=dcgm-exporter" \
-                         -o "jsonpath={ .items[0].metadata.name}")
-
-kubectl port-forward $NAME 8080:9400 &
-
-curl -sL http://127.0.0.1:8080/metrics
-# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz).
-# TYPE DCGM_FI_DEV_SM_CLOCK gauge
-# HELP DCGM_FI_DEV_MEM_CLOCK Memory clock frequency (in MHz).
-# TYPE DCGM_FI_DEV_MEM_CLOCK gauge
-# HELP DCGM_FI_DEV_MEMORY_TEMP Memory temperature (in C).
-# TYPE DCGM_FI_DEV_MEMORY_TEMP gauge
-...
-DCGM_FI_DEV_SM_CLOCK{gpu="0", UUID="GPU-604ac76c-d9cf-fef3-62e9-d92044ab6e52",container="",namespace="",pod=""} 139
-DCGM_FI_DEV_MEM_CLOCK{gpu="0", UUID="GPU-604ac76c-d9cf-fef3-62e9-d92044ab6e52",container="",namespace="",pod=""} 405
-DCGM_FI_DEV_MEMORY_TEMP{gpu="0", UUID="GPU-604ac76c-d9cf-fef3-62e9-d92044ab6e52",container="",namespace="",pod=""} 9223372036854775794
-...
-
-```
-
-To integrate DCGM-Exporter with Prometheus and Grafana, see the full instructions in the [user guide](https://docs.nvidia.com/datacenter/cloud-native/gpu-telemetry/latest/).
-`dcgm-exporter` is deployed as part of the GPU Operator. To get started with integrating with Prometheus, check the Operator [user guide](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/getting-started.html#gpu-telemetry).
-
-### TLS and Basic Auth
-
-Exporter supports TLS and basic auth using [exporter-toolkit](https://github.com/prometheus/exporter-toolkit). To use TLS and/or basic auth, users need to use `--web-config-file` CLI flag as follows
-
-```shell
-dcgm-exporter --web-config-file=web-config.yaml
-```
-
-A sample `web-config.yaml` file can be fetched from [exporter-toolkit repository](https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-config.yml). The reference of the `web-config.yaml` file can be consulted in the [docs](https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md).
-
-### How to include HPC jobs in metric labels
-
-The DCGM-exporter can include High-Performance Computing (HPC) job information into its metric labels. To achieve this, HPC environment administrators must configure their HPC environment to generate files that map GPUs to HPC jobs.
-
-#### File Conventions
-
-These mapping files follow a specific format:
-
-* Each file is named after a unique GPU ID (e.g., 0, 1, 2, etc.).
-* Each line in the file contains JOB IDs that run on the corresponding GPU.
-
-#### Enabling HPC Job Mapping on DCGM-Exporter
-
-To enable GPU-to-job mapping on the DCGM-exporter side, users must run the DCGM-exporter with the --hpc-job-mapping-dir command-line parameter, pointing to a directory where the HPC cluster creates job mapping files. Or, users can set the environment variable DCGM_HPC_JOB_MAPPING_DIR to achieve the same result.
-
-### Building from Source
-
-In order to build dcgm-exporter ensure you have the following:
-
-* [Golang >= 1.22 installed](https://golang.org/)
-* [DCGM installed](https://developer.nvidia.com/dcgm)
-* Have Linux machine with GPU, compatible with DCGM.
-
-```shell
-git clone https://github.com/NVIDIA/dcgm-exporter.git
+### 方法2: 源码构建
+```bash
+# 在Linux环境构建
+git clone https://github.com/your-repo/dcgm-exporter.git
 cd dcgm-exporter
-make binary
-sudo make install
-...
-dcgm-exporter &
-curl localhost:9400/metrics
-# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz).
-# TYPE DCGM_FI_DEV_SM_CLOCK gauge
-# HELP DCGM_FI_DEV_MEM_CLOCK Memory clock frequency (in MHz).
-# TYPE DCGM_FI_DEV_MEM_CLOCK gauge
-# HELP DCGM_FI_DEV_MEMORY_TEMP Memory temperature (in C).
-# TYPE DCGM_FI_DEV_MEMORY_TEMP gauge
-...
-DCGM_FI_DEV_SM_CLOCK{gpu="0", UUID="GPU-604ac76c-d9cf-fef3-62e9-d92044ab6e52"} 139
-DCGM_FI_DEV_MEM_CLOCK{gpu="0", UUID="GPU-604ac76c-d9cf-fef3-62e9-d92044ab6e52"} 405
-DCGM_FI_DEV_MEMORY_TEMP{gpu="0", UUID="GPU-604ac76c-d9cf-fef3-62e9-d92044ab6e52"} 9223372036854775794
-...
+go build -o dcgm-exporter ./cmd/dcgm-exporter
 ```
 
-### Changing Metrics
-
-With `dcgm-exporter` you can configure which fields are collected by specifying a custom CSV file.
-You will find the default CSV file under `etc/default-counters.csv` in the repository, which is copied on your system or container to `/etc/dcgm-exporter/default-counters.csv`
-
-The layout and format of this file is as follows:
-
-```
-# Format
-# If line starts with a '#' it is considered a comment
-# DCGM FIELD, Prometheus metric type, help message
-
-# Clocks
-DCGM_FI_DEV_SM_CLOCK,  gauge, SM clock frequency (in MHz).
-DCGM_FI_DEV_MEM_CLOCK, gauge, Memory clock frequency (in MHz).
+### 方法3: 批量部署
+```bash
+# 部署到多台服务器
+./deploy_to_servers.sh user@server1 user@server2 user@server3
 ```
 
-A custom csv file can be specified using the `-f` option or `--collectors` as follows:
+## 🔧 配置选项
 
-```shell
-dcgm-exporter -f /tmp/custom-collectors.csv
+| 参数 | 描述 | 默认值 |
+|------|------|--------|
+| `--use-hygon-mode` | 启用海光DCU模式 | false |
+| `--address` | 监听地址 | :9400 |
+| `--collectors` | 指标配置文件 | default-counters.csv |
+| `--hygon-devices` | 监控的DCU设备 | f (全部) |
+| `--hy-smi-path` | hy-smi命令路径 | hy-smi |
+
+## 🌐 Prometheus配置
+
+```yaml
+scrape_configs:
+  - job_name: 'hygon-dcu'
+    static_configs:
+      - targets: ['server1:9400', 'server2:9400']
+    scrape_interval: 30s
 ```
 
-Notes:
+## 🔍 故障排除
 
-* Always make sure your entries have 2 commas (',')
-* The complete list of counters that can be collected can be found on the DCGM API reference manual: <https://docs.nvidia.com/datacenter/dcgm/latest/dcgm-api/dcgm-api-field-ids.html>
+### 常见问题
+1. **hy-smi未找到**: 使用`--hy-smi-path`指定完整路径
+2. **权限被拒绝**: 添加用户到hygon组或使用sudo
+3. **端口被占用**: 使用`--address`指定其他端口
 
-### What about a Grafana Dashboard?
+### 调试命令
+```bash
+# 启用调试模式
+./dcgm-exporter --use-hygon-mode --debug
 
-You can find the official NVIDIA DCGM-Exporter dashboard here: <https://grafana.com/grafana/dashboards/12239>
+# 检查服务状态
+systemctl status hygon-dcgm-exporter
 
-You will also find the `json` file on this repo under `grafana/dcgm-exporter-dashboard.json`
-
-Pull requests are accepted!
-
-### Building the containers
-
-This project uses [docker buildx](https://docs.docker.com/buildx/working-with-buildx/) for multi-arch image creation. Follow the instructions on that page to get a working builder instance for creating these containers. Some other useful build options follow.
-
-Builds local images based on the machine architecture and makes them available in 'docker images'
-
-```shell
-make local
+# 查看日志
+journalctl -u hygon-dcgm-exporter -f
 ```
 
-Build the ubuntu image and export to 'docker images'
+## 📚 文档
 
-```shell
-make ubuntu22.04 PLATFORMS=linux/amd64 OUTPUT=type=docker
-```
+- **[📖 完整使用指南](快速开始.md)** - 详细的安装、配置和故障排除指南
+- **[🚀 部署文档](deployment/)** - Kubernetes和Docker部署配置
+- **[🔧 开发文档](internal/)** - 代码结构和开发指南
 
-Build and push the images to some other 'private_registry'
+## 🤝 贡献
 
-```shell
-make REGISTRY=<private_registry> push
-```
+欢迎提交Issue和Pull Request！
 
-## Issues and Contributing
+1. Fork项目
+2. 创建特性分支: `git checkout -b feature/your-feature`
+3. 提交更改: `git commit -am 'Add some feature'`
+4. 推送分支: `git push origin feature/your-feature`
+5. 创建Pull Request
 
-[Checkout the Contributing document!](CONTRIBUTING.md)
+## 📄 许可证
 
-* Please let us know by [filing a new issue](https://github.com/NVIDIA/dcgm-exporter/issues/new)
-* You can contribute by opening a [pull request](https://github.com/NVIDIA/dcgm-exporter)
+本项目基于Apache 2.0许可证开源。详见[LICENSE](LICENSE)文件。
 
-### Reporting Security Issues
+## 🙏 致谢
 
-We ask that all community members and users of DCGM Exporter follow the standard NVIDIA process for reporting security vulnerabilities. This process is documented at the [NVIDIA Product Security](https://www.nvidia.com/en-us/security/) website.
-Following the process will result in any needed CVE being created as well as appropriate notifications being communicated
-to the entire DCGM Exporter community. NVIDIA reserves the right to delete vulnerability reports until they're fixed.
+- [NVIDIA DCGM](https://github.com/NVIDIA/dcgm) - 原始DCGM项目
+- [NVIDIA DCGM-Exporter](https://github.com/NVIDIA/dcgm-exporter) - 原始Exporter项目
+- 海光信息技术股份有限公司 - DCU硬件支持
 
-Please refer to the policies listed there to answer questions related to reporting security issues.
+---
+
+**🎉 让GPU/DCU监控变得简单！**

@@ -22,6 +22,14 @@ import (
 
 type KubernetesGPUIDType string
 
+// DeviceType 定义设备类型
+type DeviceType string
+
+const (
+	DeviceTypeNVIDIA DeviceType = "nvidia"
+	DeviceTypeHygon  DeviceType = "hygon"
+)
+
 type DeviceOptions struct {
 	Flex       bool  // If true, then monitor all GPUs if MIG mode is disabled or all GPU instances if MIG is enabled.
 	MajorRange []int // The indices of each GPU/NvSwitch to monitor, or -1 to monitor all
@@ -67,4 +75,10 @@ type Config struct {
 	NvidiaResourceNames        []string
 	KubernetesVirtualGPUs      bool
 	DumpConfig                 DumpConfig // Configuration for file-based dumps
+
+	// 海光卡相关配置
+	DeviceType                 DeviceType // 设备类型：nvidia 或 hygon
+	HygonDeviceOptions         DeviceOptions // 海光卡设备选项
+	UseHygonMode               bool       // 是否启用海光卡模式
+	HySmiPath                  string     // hy-smi 命令路径
 }

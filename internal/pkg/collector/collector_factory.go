@@ -19,12 +19,14 @@ package collector
 import (
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/NVIDIA/go-dcgm/pkg/dcgm"
 
 	"github.com/NVIDIA/dcgm-exporter/internal/pkg/appconfig"
 	"github.com/NVIDIA/dcgm-exporter/internal/pkg/counters"
 	"github.com/NVIDIA/dcgm-exporter/internal/pkg/devicewatchlistmanager"
+	"github.com/NVIDIA/dcgm-exporter/internal/pkg/hygonprovider"
 	"github.com/NVIDIA/dcgm-exporter/internal/pkg/logging"
 )
 
@@ -58,6 +60,12 @@ func (cf *collectorFactory) NewCollectors() []EntityCollectorTuple {
 		slog.String(logging.DumpKey, fmt.Sprintf("%+v", cf.counterSet.DCGMCounters)))
 
 	entityCollectorTuples := make([]EntityCollectorTuple, 0)
+
+	// 检查是否启用海光卡模式
+	if cf.config != nil && cf.config.UseHygonMode {
+		return cf.createHygonCollectors()
+	}
+
 	entityTypes := []dcgm.Field_Entity_Group{
 		dcgm.FE_GPU,
 		dcgm.FE_SWITCH,
@@ -168,5 +176,48 @@ func (cf *collectorFactory) enableExpCollector(expCollectorName string) (Collect
 	}
 
 	slog.Info(fmt.Sprintf("collector '%s' initialized", expCollectorName))
+	return newCollector, nil
+}
+
+// createHygonCollectors 创建海光卡收集器
+func (cf *collectorFactory) createHygonCollectors() []EntityCollectorTuple {
+	slog.Info("Creating Hygon DCU collectors")
+
+	// 初始化海光卡提供者
+	hygonprovider.Initialize()
+
+	// 检查海光卡是否可用
+	if !hygonprovider.Client().IsAvailable() {
+		slog.Error("Hygon hy-smi tool is not available")
+		os.Exit(1)
+	}
+
+	entityCollectorTuples := make([]EntityCollectorTuple, 0)
+
+	// 创建海光卡收集器
+	if len(cf.counterSet.DCGMCounters) > 0 {
+		hygonCollector, err := cf.enableHygonCollector()
+		if err != nil {
+			slog.Error(fmt.Sprintf("Hygon collector cannot be initialized; err: %v", err))
+			os.Exit(1)
+		} else {
+			entityCollectorTuples = append(entityCollectorTuples, EntityCollectorTuple{
+				entity:    dcgm.FE_GPU, // 使用GPU实体类型作为海光DCU的映射
+				collector: hygonCollector,
+			})
+		}
+	}
+
+	return entityCollectorTuples
+}
+
+// enableHygonCollector 启用海光卡收集器
+func (cf *collectorFactory) enableHygonCollector() (Collector, error) {
+	newCollector, err := NewHygonCollector(cf.counterSet.DCGMCounters, cf.hostname, cf.config)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("Hygon collector initialized")
 	return newCollector, nil
 }

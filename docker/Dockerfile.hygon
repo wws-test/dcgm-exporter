@@ -1,0 +1,107 @@
+# Multi-stage build for Hygon DCU support
+FROM golang:1.21-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git make
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the binary
+RUN make binary
+
+# Final stage - runtime image
+FROM ubuntu:22.04
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r dcgm && useradd -r -g dcgm dcgm
+
+# Create directories
+RUN mkdir -p /etc/dcgm-exporter
+
+# Copy binary from builder stage
+COPY --from=builder /workspace/cmd/dcgm-exporter/dcgm-exporter /usr/bin/dcgm-exporter
+
+# Copy configuration files
+COPY etc/hygon-counters.csv /etc/dcgm-exporter/hygon-counters.csv
+COPY etc/default-counters.csv /etc/dcgm-exporter/default-counters.csv
+
+# Set permissions
+RUN chmod +x /usr/bin/dcgm-exporter
+
+# Create entrypoint script
+RUN cat > /usr/bin/entrypoint.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Check if hy-smi is available when in Hygon mode
+if [ "${DCGM_EXPORTER_USE_HYGON_MODE}" = "true" ]; then
+    echo "Starting in Hygon DCU mode..."
+    
+    # Check if hy-smi is available
+    if ! command -v hy-smi &> /dev/null; then
+        echo "ERROR: hy-smi command not found. Please ensure Hygon DCU drivers and tools are installed."
+        exit 1
+    fi
+    
+    # Test hy-smi access
+    if ! hy-smi --help &> /dev/null; then
+        echo "ERROR: Cannot access hy-smi. Please check permissions and DCU driver status."
+        exit 1
+    fi
+    
+    echo "hy-smi is available and accessible"
+    
+    # Set default collectors file for Hygon mode if not specified
+    if [ -z "${DCGM_EXPORTER_COLLECTORS}" ]; then
+        export DCGM_EXPORTER_COLLECTORS="/etc/dcgm-exporter/hygon-counters.csv"
+    fi
+else
+    echo "Starting in NVIDIA GPU mode..."
+    
+    # Set default collectors file for NVIDIA mode if not specified
+    if [ -z "${DCGM_EXPORTER_COLLECTORS}" ]; then
+        export DCGM_EXPORTER_COLLECTORS="/etc/dcgm-exporter/default-counters.csv"
+    fi
+fi
+
+# Execute the main command
+exec "$@"
+EOF
+
+RUN chmod +x /usr/bin/entrypoint.sh
+
+# Expose metrics port
+EXPOSE 9400
+
+# Set default environment variables
+ENV DCGM_EXPORTER_LISTEN=:9400
+ENV DCGM_EXPORTER_INTERVAL=30000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:9400/health || exit 1
+
+# Use non-root user (commented out for now due to potential permission issues with hy-smi)
+# USER dcgm
+
+# Set entrypoint
+ENTRYPOINT ["/usr/bin/entrypoint.sh"]
+
+# Default command
+CMD ["/usr/bin/dcgm-exporter"]

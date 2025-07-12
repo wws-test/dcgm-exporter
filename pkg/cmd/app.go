@@ -96,12 +96,17 @@ const (
 	CLIDumpDirectory              = "dump-directory"
 	CLIDumpRetention              = "dump-retention"
 	CLIDumpCompression            = "dump-compression"
+
+	// 海光卡相关CLI选项
+	CLIUseHygonMode               = "use-hygon-mode"
+	CLIHygonDevices               = "hygon-devices"
+	CLIHySmiPath                  = "hy-smi-path"
 )
 
 func NewApp(buildVersion ...string) *cli.App {
 	c := cli.NewApp()
-	c.Name = "DCGM Exporter"
-	c.Usage = "Generates GPU metrics in the prometheus format"
+	c.Name = "DCGM Exporter (with Hygon DCU Support)"
+	c.Usage = "Generates GPU/DCU metrics in the prometheus format (supports NVIDIA GPU and Hygon DCU)"
 	if len(buildVersion) == 0 {
 		buildVersion = append(buildVersion, "")
 	}
@@ -307,6 +312,26 @@ func NewApp(buildVersion ...string) *cli.App {
 			Usage:   "Use gzip compression for debug dump files",
 			EnvVars: []string{"DCGM_EXPORTER_DUMP_COMPRESSION"},
 		},
+		// 海光卡相关标志
+		&cli.BoolFlag{
+			Name:    CLIUseHygonMode,
+			Value:   false,
+			Usage:   "Enable Hygon DCU monitoring mode instead of NVIDIA GPU mode",
+			EnvVars: []string{"DCGM_EXPORTER_USE_HYGON_MODE"},
+		},
+		&cli.StringFlag{
+			Name:    CLIHygonDevices,
+			Aliases: []string{"hd"},
+			Value:   FlexKey,
+			Usage:   "Specify which Hygon DCU devices to monitor (same format as GPU devices)",
+			EnvVars: []string{"DCGM_EXPORTER_HYGON_DEVICES_STR"},
+		},
+		&cli.StringFlag{
+			Name:    CLIHySmiPath,
+			Value:   "hy-smi",
+			Usage:   "Path to the hy-smi command",
+			EnvVars: []string{"DCGM_EXPORTER_HY_SMI_PATH"},
+		},
 	}
 
 	if runtime.GOOS == "linux" {
@@ -392,11 +417,16 @@ func startDCGMExporter(c *cli.Context) error {
 			version = c.App.Version
 		}
 
-		slog.Info("Starting dcgm-exporter", slog.String("Version", version))
-
 		config, err := contextToConfig(c)
 		if err != nil {
 			return err
+		}
+
+		if config.UseHygonMode {
+			slog.Info("Starting dcgm-exporter in Hygon DCU mode", slog.String("Version", version))
+			return startHygonExporter(ctx, config)
+		} else {
+			slog.Info("Starting dcgm-exporter in NVIDIA GPU mode", slog.String("Version", version))
 		}
 
 		err = prerequisites.Validate()
@@ -662,6 +692,12 @@ func contextToConfig(c *cli.Context) (*appconfig.Config, error) {
 		return nil, err
 	}
 
+	// 解析海光卡设备选项
+	hOpt, err := parseDeviceOptions(c.String(CLIHygonDevices))
+	if err != nil {
+		return nil, err
+	}
+
 	dcgmLogLevel := c.String(CLIDCGMLogLevel)
 	if !slices.Contains(DCGMDbgLvlValues, dcgmLogLevel) {
 		return nil, fmt.Errorf("invalid %s parameter value: %s", CLIDCGMLogLevel, dcgmLogLevel)
@@ -702,7 +738,21 @@ func contextToConfig(c *cli.Context) (*appconfig.Config, error) {
 			Retention:   c.Int(CLIDumpRetention),
 			Compression: c.Bool(CLIDumpCompression),
 		},
+
+		// 海光卡相关配置
+		UseHygonMode:       c.Bool(CLIUseHygonMode),
+		HygonDeviceOptions: hOpt,
+		HySmiPath:          c.String(CLIHySmiPath),
+		DeviceType:         getDeviceType(c.Bool(CLIUseHygonMode)),
 	}, nil
+}
+
+// getDeviceType 根据海光卡模式标志返回设备类型
+func getDeviceType(useHygonMode bool) appconfig.DeviceType {
+	if useHygonMode {
+		return appconfig.DeviceTypeHygon
+	}
+	return appconfig.DeviceTypeNVIDIA
 }
 
 func watchCollectorsFile(filePath string, onChange func()) {
@@ -761,4 +811,71 @@ func reloadMetricsServer(s chan os.Signal) func() {
 		slog.Info("Reloading metrics server")
 		s <- syscall.SIGHUP
 	}
+}
+
+// startHygonExporter 启动海光卡模式的exporter
+func startHygonExporter(ctx context.Context, config *appconfig.Config) error {
+	slog.Info("Initializing Hygon DCU exporter")
+
+	// 设置默认的海光卡配置文件路径
+	if config.CollectorsFile == "/etc/dcgm-exporter/default-counters.csv" {
+		config.CollectorsFile = "/etc/dcgm-exporter/hygon-counters.csv"
+		slog.Info("Using Hygon counters file", slog.String("file", config.CollectorsFile))
+	}
+
+	cs := getCounters(config)
+
+	hostname, err := hostname.GetHostname(config)
+	if err != nil {
+		return err
+	}
+
+	// 创建海光卡收集器工厂
+	cf := collector.InitCollectorFactory(cs, nil, hostname, config)
+
+	cRegistry := registry.NewRegistry()
+	for _, entityCollector := range cf.NewCollectors() {
+		cRegistry.Register(entityCollector)
+	}
+
+	ch := make(chan string, 10)
+
+	var wg sync.WaitGroup
+	stop := make(chan interface{})
+
+	wg.Add(1)
+
+	server, cleanup, err := server.NewMetricsServer(config, ch, nil, cRegistry)
+	if err != nil {
+		cRegistry.Cleanup()
+		return err
+	}
+
+	go server.Run(ctx, stop, &wg)
+
+	sigs := newOSWatcher(syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+
+	go watchCollectorsFile(config.CollectorsFile, reloadMetricsServer(sigs))
+
+	sig := <-sigs
+	slog.Info("Received signal", slog.String("signal", sig.String()))
+	close(stop)
+	err = utils.WaitWithTimeout(&wg, time.Second*2)
+	if err != nil {
+		slog.Error(err.Error())
+		cRegistry.Cleanup()
+		cleanup()
+		fatal()
+	}
+
+	// Call cleanup functions
+	cRegistry.Cleanup()
+	cleanup()
+
+	if sig != syscall.SIGHUP {
+		return nil
+	}
+
+	slog.Info("Restarting hygon exporter after signal")
+	return startHygonExporter(ctx, config)
 }

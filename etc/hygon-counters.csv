@@ -1,0 +1,21 @@
+# Format
+# If line starts with a '#' it is considered a comment
+# HYGON FIELD, Prometheus metric type, help message
+
+# Temperature
+hygon_temperature, gauge, DCU temperature (in C).
+
+# Power
+hygon_avg_power, gauge, Average power consumption (in W).
+hygon_power_cap, gauge, Power cap limit (in W).
+
+# Utilization
+hygon_dcu_usage, gauge, DCU utilization (in %).
+hygon_vram_usage, gauge, VRAM usage (in %).
+
+# Device Status
+hygon_performance_mode, gauge, Performance mode (1=auto, 0=manual).
+hygon_device_mode, gauge, Device operating mode (1=Normal, 0=other).
+
+# Device Information (labels)
+hygon_device_info, label, Device information including model name and UUID.

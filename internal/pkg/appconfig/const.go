@@ -23,4 +23,9 @@ const (
 	NvidiaResourceName      = "nvidia.com/gpu"
 	NvidiaMigResourcePrefix = "nvidia.com/mig-"
 	MIG_UUID_PREFIX         = "MIG-"
+
+	// 海光卡相关常量
+	HygonResourceName       = "hygon.com/dcu"
+	HygonDevicePrefix       = "DCU-"
+	DefaultHySmiPath        = "hy-smi"
 )

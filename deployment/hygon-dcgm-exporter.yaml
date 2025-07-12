@@ -1,0 +1,161 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: hygon-dcgm-exporter
+  namespace: gpu-operator-resources
+  labels:
+    app: hygon-dcgm-exporter
+spec:
+  selector:
+    matchLabels:
+      app: hygon-dcgm-exporter
+  template:
+    metadata:
+      labels:
+        app: hygon-dcgm-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9400"
+        prometheus.io/path: "/metrics"
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: hygon-dcgm-exporter
+        image: dcgm-exporter-hygon:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9400
+          name: metrics
+          protocol: TCP
+        env:
+        - name: DCGM_EXPORTER_USE_HYGON_MODE
+          value: "true"
+        - name: DCGM_EXPORTER_HYGON_DEVICES_STR
+          value: "f"  # Monitor all DCU devices
+        - name: DCGM_EXPORTER_LISTEN
+          value: ":9400"
+        - name: DCGM_EXPORTER_INTERVAL
+          value: "30000"  # 30 seconds
+        - name: DCGM_EXPORTER_COLLECTORS
+          value: "/etc/dcgm-exporter/hygon-counters.csv"
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: hygon-counters
+          mountPath: /etc/dcgm-exporter/hygon-counters.csv
+          subPath: hygon-counters.csv
+          readOnly: true
+        - name: dev
+          mountPath: /dev
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9400
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9400
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: hygon-counters
+        configMap:
+          name: hygon-counters-config
+      - name: dev
+        hostPath:
+          path: /dev
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      nodeSelector:
+        hygon.com/dcu: "true"  # Only deploy on nodes with Hygon DCUs
+      tolerations:
+      - key: hygon.com/dcu
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hygon-counters-config
+  namespace: gpu-operator-resources
+data:
+  hygon-counters.csv: |
+    # Format
+    # If line starts with a '#' it is considered a comment
+    # HYGON FIELD, Prometheus metric type, help message
+
+    # Temperature
+    hygon_temperature, gauge, DCU temperature (in C).
+
+    # Power
+    hygon_avg_power, gauge, Average power consumption (in W).
+    hygon_power_cap, gauge, Power cap limit (in W).
+
+    # Utilization
+    hygon_dcu_usage, gauge, DCU utilization (in %).
+    hygon_vram_usage, gauge, VRAM usage (in %).
+
+    # Device Status
+    hygon_performance_mode, gauge, Performance mode (1=auto, 0=manual).
+    hygon_device_mode, gauge, Device operating mode (1=Normal, 0=other).
+
+    # Device Information (labels)
+    hygon_device_info, label, Device information including model name and UUID.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hygon-dcgm-exporter-service
+  namespace: gpu-operator-resources
+  labels:
+    app: hygon-dcgm-exporter
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9400"
+    prometheus.io/path: "/metrics"
+spec:
+  selector:
+    app: hygon-dcgm-exporter
+  ports:
+  - name: metrics
+    port: 9400
+    targetPort: 9400
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hygon-dcgm-exporter
+  namespace: gpu-operator-resources
+  labels:
+    app: hygon-dcgm-exporter
+spec:
+  selector:
+    matchLabels:
+      app: hygon-dcgm-exporter
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
