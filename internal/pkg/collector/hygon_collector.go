@@ -70,23 +70,35 @@ func (c *HygonCollector) GetMetrics() (MetricsByCounter, error) {
 
 		// 处理每个计数器
 		for _, counter := range c.counters {
-			metricName := c.buildMetricName(counter)
-			
 			// 根据计数器类型获取对应的设备指标值
 			value, err := c.getDeviceMetricValue(device, counter)
 			if err != nil {
-				slog.Warn("Failed to get metric value", 
+				slog.Warn("Failed to get metric value",
 					slog.String("counter", counter.FieldName),
 					slog.Uint64("device", uint64(device.ID)),
 					slog.String("error", err.Error()))
 				continue
 			}
 
-			// 创建指标
+			// 处理型号名称中的空格
+			modelName := device.ModelName
+			if c.replaceBlanksInModelName {
+				modelName = replaceBlankInString(modelName)
+			}
+
+			// 创建指标 - 填充所有必需的字段以支持Prometheus模板渲染
 			metric := Metric{
-				Name:   metricName,
-				Labels: deviceLabels,
-				Value:  value,
+				Counter:      counter,
+				Value:        value,
+				GPU:          fmt.Sprintf("%d", device.ID),
+				GPUUUID:      device.UUID,
+				GPUDevice:    fmt.Sprintf("hygon%d", device.ID),
+				GPUModelName: modelName,
+				GPUPCIBusID:  "",     // 海光卡暂时没有PCI总线ID信息
+				UUID:         "UUID", // 使用标准的UUID标签名
+				Hostname:     c.hostname,
+				Labels:       deviceLabels,
+				Attributes:   map[string]string{},
 			}
 
 			// 添加到指标集合
@@ -107,14 +119,14 @@ func (c *HygonCollector) buildDeviceLabels(device hygonprovider.HygonDevice) map
 	// 基础标签
 	labels["device"] = strconv.FormatUint(uint64(device.ID), 10)
 	labels["uuid"] = device.UUID
-	
+
 	// 处理型号名称中的空格
 	modelName := device.ModelName
 	if c.replaceBlanksInModelName {
 		modelName = replaceBlankInString(modelName)
 	}
 	labels["modelName"] = modelName
-	
+
 	// 添加主机名（如果不禁用）
 	if c.hostname != "" {
 		labels["hostname"] = c.hostname
@@ -135,7 +147,7 @@ func (c *HygonCollector) buildMetricName(counter counters.Counter) string {
 	} else {
 		namespace = "DCGM"
 	}
-	
+
 	return fmt.Sprintf("%s_%s", namespace, counter.FieldName)
 }
 

@@ -1,0 +1,29 @@
+[Unit]
+Description=Hygon DCU Exporter
+Documentation=https://github.com/hygon-dcu-exporter
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/hygon-dcu-exporter
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hygon-dcu-exporter
+
+# 安全设置
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/
+ReadWritePaths=/sys/class/drm
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=32768
+
+[Install]
+WantedBy=multi-user.target

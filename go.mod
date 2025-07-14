@@ -2,6 +2,8 @@ module github.com/NVIDIA/dcgm-exporter
 
 go 1.23.0
 
+toolchain go1.24.5
+
 require (
 	github.com/NVIDIA/go-dcgm v0.0.0-20250401195952-7c92211ba301
 	github.com/NVIDIA/go-nvml v0.12.4-1

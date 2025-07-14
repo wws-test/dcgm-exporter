@@ -25,6 +25,16 @@ const (
 	DCGMXIDErrorsCount   ExporterCounter = iota + 9000
 	DCGMClockEventsCount ExporterCounter = iota + 9000
 	DCGMGPUHealthStatus  ExporterCounter = iota + 9000
+
+	// 海光卡相关计数器
+	HygonTemperature     ExporterCounter = iota + 10000
+	HygonAvgPower        ExporterCounter = iota + 10000
+	HygonPowerCap        ExporterCounter = iota + 10000
+	HygonVRAMUsage       ExporterCounter = iota + 10000
+	HygonDCUUsage        ExporterCounter = iota + 10000
+	HygonPerformanceMode ExporterCounter = iota + 10000
+	HygonDeviceMode      ExporterCounter = iota + 10000
+	HygonDeviceInfo      ExporterCounter = iota + 10000
 )
 
 // String method to convert the enum value to a string
@@ -36,6 +46,22 @@ func (enm ExporterCounter) String() string {
 		return DCGMExpClockEventsCount
 	case DCGMGPUHealthStatus:
 		return DCGMExpGPUHealthStatus
+	case HygonTemperature:
+		return "hygon_temperature"
+	case HygonAvgPower:
+		return "hygon_avg_power"
+	case HygonPowerCap:
+		return "hygon_power_cap"
+	case HygonVRAMUsage:
+		return "hygon_vram_usage"
+	case HygonDCUUsage:
+		return "hygon_dcu_usage"
+	case HygonPerformanceMode:
+		return "hygon_performance_mode"
+	case HygonDeviceMode:
+		return "hygon_device_mode"
+	case HygonDeviceInfo:
+		return "hygon_device_info"
 	default:
 		return "DCGM_FI_UNKNOWN"
 	}
@@ -47,6 +73,16 @@ var DCGMFields = map[string]ExporterCounter{
 	DCGMClockEventsCount.String(): DCGMClockEventsCount,
 	DCGMGPUHealthStatus.String():  DCGMGPUHealthStatus,
 	DCGMFIUnknown.String():        DCGMFIUnknown,
+
+	// 海光卡字段映射
+	HygonTemperature.String():     HygonTemperature,
+	HygonAvgPower.String():        HygonAvgPower,
+	HygonPowerCap.String():        HygonPowerCap,
+	HygonVRAMUsage.String():       HygonVRAMUsage,
+	HygonDCUUsage.String():        HygonDCUUsage,
+	HygonPerformanceMode.String(): HygonPerformanceMode,
+	HygonDeviceMode.String():      HygonDeviceMode,
+	HygonDeviceInfo.String():      HygonDeviceInfo,
 }
 
 func IdentifyMetricType(s string) (ExporterCounter, error) {
