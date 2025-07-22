@@ -1,0 +1,52 @@
+# Prometheus配置示例
+# 包含海光DCU监控和系统监控的完整配置
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus自身监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # 海光DCU监控
+  - job_name: 'hygon-dcu-exporter'
+    static_configs:
+      - targets: ['localhost:9400']  # 海光DCU exporter
+    scrape_interval: 10s
+    metrics_path: /metrics
+    
+  # 系统监控 (Node Exporter)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['localhost:9100']  # Node exporter
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # 如果有多台服务器，可以添加更多targets
+  # - job_name: 'hygon-dcu-cluster'
+  #   static_configs:
+  #     - targets: 
+  #       - '192.168.1.100:9400'  # 服务器1的DCU exporter
+  #       - '192.168.1.101:9400'  # 服务器2的DCU exporter
+  #       - '192.168.1.100:9100'  # 服务器1的Node exporter
+  #       - '192.168.1.101:9100'  # 服务器2的Node exporter
+
+# 告警规则配置 (可选)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           # - alertmanager:9093
+
+# 存储配置
+storage:
+  tsdb:
+    retention.time: 30d  # 数据保留30天
+    retention.size: 50GB # 最大存储50GB
